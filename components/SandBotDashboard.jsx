@@ -75,8 +75,8 @@ export default function SandBotDashboard() {
   const [previousQueueStatus, setPreviousQueueStatus] = useState(0);
   const [filePlayStartTime, setFilePlayStartTime] = useState(null);
   
-  // LED control
-  const [wledEnabled, setWledEnabled] = useState(false);
+  // Control interface selection
+  const [controlMode, setControlMode] = useState('disabled'); // 'disabled', 'wled', 'legacy', 'cnc'
   const [wledAddress, setWledAddress] = useState('');
   
   // WiFi configuration
@@ -102,7 +102,7 @@ useEffect(() => {
   // Apply query parameters to state if they exist
   if (params.robotName) setRobotName(params.robotName);
   if (params.pollCycle) setPollCycle(params.pollCycle);
-  if (params.wledEnabled !== undefined) setWledEnabled(params.wledEnabled);
+  if (params.wledEnabled !== undefined) setControlMode(params.wledEnabled ? 'wled' : 'disabled');
   if (params.wledAddress) setWledAddress(params.wledAddress);
   
 }, []);
@@ -111,7 +111,7 @@ useEffect(() => {
 useEffect(() => {
   if (robotName) {
     // If wLED address is not set but wLED is enabled, update the wLED address
-    if (wledEnabled && !wledAddress) {
+    if (controlMode === 'wled' && !wledAddress) {
       setWledAddress(robotName);
     }
     
@@ -133,14 +133,14 @@ useEffect(() => {
       clearInterval(pollIntervalRef.current);
     }
   };
-}, [robotName, pollCycle, wledEnabled]);
+}, [robotName, pollCycle, controlMode]);
   
-// Handle tab switching when wLED is disabled
+// Handle tab switching when control mode is disabled
 useEffect(() => {
-  if (!wledEnabled && activeTab === 'wled') {
+  if (controlMode === 'disabled' && activeTab === 'control') {
     setActiveTab('configuration');
   }
-}, [wledEnabled, activeTab]);
+}, [controlMode, activeTab]);
 
   // Update simulator drawing when needed
   useEffect(() => {
@@ -167,7 +167,7 @@ const updateUrlWithSettings = () => {
     url.searchParams.delete('pollCycle');
   }
   
-  if (wledEnabled) {
+  if (controlMode !== 'disabled') {
     url.searchParams.set('wledEnabled', 'true');
   } else {
     url.searchParams.delete('wledEnabled');
@@ -197,16 +197,13 @@ const updateUrlWithSettings = () => {
     
     const historyEntry = {
       fileName,
-      playTimestamp: playStartTime ? playStartTime.toLocaleTimeString() : new Date().toLocaleTimeString(),
-      id: Date.now() // Simple unique ID
+      playTimestamp: playStartTime ? playStartTime.toLocaleString() : new Date().toLocaleString(),
+      id: Date.now() + Math.random() // Unique ID to handle duplicates
     };
     
     setFileHistory(prev => {
-      // Remove any existing entry for this file and add new one at the beginning
-      const filtered = prev.filter(entry => entry.fileName !== fileName);
-      const newHistory = [historyEntry, ...filtered];
-      // Keep only the last 10 entries
-      return newHistory.slice(0, 10);
+      // Add new entry at the beginning, keeping all duplicates
+      return [historyEntry, ...prev];
     });
   };
 
@@ -550,6 +547,33 @@ const updateUrlWithSettings = () => {
     return 'idle';
   };
 
+  // Check if firmware version is >= 2.030.000
+  const isFirmwareVersionSupported = () => {
+    if (!statusData || !statusData.espV) return false;
+    
+    try {
+      // Parse version string (e.g., "2.030.000" or "2.030.001")
+      const versionStr = statusData.espV.toString();
+      const versionParts = versionStr.split('.');
+      
+      if (versionParts.length < 3) return false;
+      
+      const major = parseInt(versionParts[0], 10) || 0;
+      const minor = parseInt(versionParts[1], 10) || 0;
+      const patch = parseInt(versionParts[2], 10) || 0;
+      
+      // Check if version >= 2.030.000
+      if (major > 2) return true;
+      if (major === 2 && minor > 30) return true;
+      if (major === 2 && minor === 30 && patch >= 0) return true;
+      
+      return false;
+    } catch (error) {
+      console.error('Error parsing firmware version:', error);
+      return false;
+    }
+  };
+
   // File upload function for .seq and .thr files
   const handleFileUpload = () => {
     const input = document.createElement('input');
@@ -583,6 +607,53 @@ const updateUrlWithSettings = () => {
       setUploadingFile(false);
     };
     input.click();
+  };
+
+  // Save gallery to playlist function
+  const handleSaveGalleryToPlaylist = async () => {
+    if (!robotName || fileHistory.length === 0) return;
+    
+    // Prompt user for filename
+    const filename = prompt('Enter filename for the playlist (without extension):');
+    if (!filename) return;
+    
+    // Ensure filename ends with .seq
+    const finalFilename = filename.endsWith('.seq') ? filename : `${filename}.seq`;
+    
+    try {
+      // Create playlist content from gallery (reverse order, just filenames)
+      const playlistContent = fileHistory
+        .slice() // Create a copy to avoid mutating original
+        .reverse() // Reverse the order
+        .map(entry => entry.fileName) // Extract just the filename
+        .join('\n'); // Join with newlines
+      
+      // Create a file object from the content
+      const file = new File([playlistContent], finalFilename, {
+        type: 'text/plain',
+      });
+      
+      // Create form data
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      // Upload to robot
+      const response = await fetch(`http://${robotName}/uploadtofileman`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (response.ok) {
+        alert(`Playlist ${finalFilename} created and uploaded successfully`);
+        // Refresh file list to show the new file
+        fetchFileList();
+      } else {
+        alert('Failed to upload playlist');
+      }
+    } catch (error) {
+      console.error('Error creating playlist:', error);
+      alert('Error creating playlist');
+    }
   };
   
   // Parse .thr file content
@@ -716,10 +787,10 @@ const updateUrlWithSettings = () => {
       <div className="flex space-x-4">
         <div className="flex-1">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-           <TabsList className={`grid w-full ${wledEnabled ? 'grid-cols-4' : 'grid-cols-3'} bg-[#e6d8cc]`}>
+           <TabsList className={`grid w-full ${controlMode !== 'disabled' ? 'grid-cols-4' : 'grid-cols-3'} bg-[#e6d8cc]`}>
 		  <TabsTrigger value="status">Status</TabsTrigger>
 		  <TabsTrigger value="simulator">Pattern Simulator</TabsTrigger>
-		  {wledEnabled && <TabsTrigger value="wled">wLED Control</TabsTrigger>}
+		  {controlMode !== 'disabled' && <TabsTrigger value="control">{controlMode === 'wled' ? 'wLED Control' : controlMode === 'legacy' ? 'Sand UI' : 'CNC Control'}</TabsTrigger>}
 		  <TabsTrigger value="configuration">Configuration</TabsTrigger>
 	   </TabsList> 
             {/* Status Tab */}
@@ -747,6 +818,16 @@ const updateUrlWithSettings = () => {
                       <Collapsible open={historyVisible} onOpenChange={setHistoryVisible}>
                         <CollapsibleTrigger className="flex items-center w-full bg-[#e6d8cc] p-2 rounded-md">
                           <span className="flex-1 text-left font-medium">Gallery ({fileHistory.length})</span>
+                          <Button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSaveGalleryToPlaylist();
+                            }}
+                            disabled={fileHistory.length === 0 || !connected}
+                            className="mr-2 bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 h-6"
+                          >
+                            Save gallery to playlist
+                          </Button>
                           <ChevronDown className={`transform transition-transform ${historyVisible ? 'rotate-180' : ''}`} />
                         </CollapsibleTrigger>
                         <CollapsibleContent className="mt-2 bg-[#f5efe9] p-4 rounded-md shadow-sm">
@@ -849,29 +930,29 @@ const updateUrlWithSettings = () => {
               </Card>
             </TabsContent>
 
-{/* wLED Tab */}
-<TabsContent value="wled">
+{/* Control Tab */}
+<TabsContent value="control">
   <Card className="bg-white">
     <CardContent>
-      {wledEnabled ? (
+      {controlMode !== 'disabled' ? (
         wledAddress || robotName ? (
           <div className="w-full">
             <div className="aspect-video w-full">
               <iframe 
-                src={`http://${wledAddress || robotName}`} 
+                src={`http://${controlMode === 'wled' ? (wledAddress || robotName) : robotName}${controlMode === 'wled' ? '' : controlMode === 'cnc' ? '/cnc.html' : controlMode === 'legacy' ? '/sand.html' : ''}`} 
                 className="w-full h-full border-none rounded-md"
-                title="wLED Control Interface"
+                title={`${controlMode === 'wled' ? 'wLED' : controlMode === 'legacy' ? 'Legacy' : 'CNC'} Control Interface`}
               />
             </div>
             <p className="mt-4 text-sm text-gray-600">
-              Controlling wLED at: {wledAddress || robotName}
+              Controlling {controlMode === 'wled' ? 'wLED' : controlMode === 'legacy' ? 'Legacy Interface' : 'CNC Interface'} at: {controlMode === 'wled' ? (wledAddress || robotName) : robotName}
             </p>
           </div>
         ) : (
           <div className="text-center py-12">
             <HelpCircle size={48} className="mx-auto text-gray-400 mb-4" />
             <p className="text-lg font-medium text-gray-700">
-              Please enter a Robot IP or wLED IP in the Configuration tab
+              Please enter a Robot IP in the Configuration tab
             </p>
           </div>
         )
@@ -879,10 +960,10 @@ const updateUrlWithSettings = () => {
         <div className="text-center py-12">
           <WifiOff size={48} className="mx-auto text-gray-400 mb-4" />
           <p className="text-lg font-medium text-gray-700">
-            wLED Control is disabled
+            Control Interface is disabled
           </p>
           <p className="text-gray-500">
-            Enable it in the Configuration tab to control your wLED devices
+            Enable it in the Configuration tab to control your devices
           </p>
         </div>
       )}
@@ -985,47 +1066,71 @@ const updateUrlWithSettings = () => {
             )}
           </div>
           
-          {/* wLED Controls */}
+          {/* Control Interface Selection */}
           <div className="bg-[#f5efe9] p-4 rounded-md shadow-sm">
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium">wLED Control</label>
-                <div className="flex mt-1 items-center">
-                  <div className="mr-2">
-                    <label className="inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        className="sr-only peer"
-                        checked={wledEnabled}
-                        onChange={e => setWledEnabled(e.target.checked)}
-                      />
-                      <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-                      <span className="ms-3 text-sm font-medium text-gray-900 dark:text-gray-300">
-                        {wledEnabled ? 'Active' : 'Disabled'}
-                      </span>
-                    </label>
-                  </div>
+                <label className="text-sm font-medium">Control Interface</label>
+                <div className="flex mt-2 gap-2">
+                  <button
+                    onClick={() => setControlMode('disabled')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      controlMode === 'disabled'
+                        ? 'bg-gray-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Disabled
+                  </button>
+                  <button
+                    onClick={() => setControlMode('wled')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      controlMode === 'wled'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    wLED
+                  </button>
+                  <button
+                    onClick={() => setControlMode('legacy')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      controlMode === 'legacy'
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    Legacy
+                  </button>
+                  <button
+                    onClick={() => setControlMode('cnc')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      controlMode === 'cnc'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    CNC
+                  </button>
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm font-medium">wLED IP/Hostname</label>
-                <div className="flex mt-1">
-                  <Input
-                    value={wledAddress}
-                    onChange={e => {
-                      const newAddress = e.target.value;
-                      setWledAddress(newAddress);
-                      // Auto-enable wLED when address is entered
-                      if (newAddress && !wledEnabled) {
-                        setWledEnabled(true);
-                      }
-                    }}
-                    placeholder="Enter wLED IP or hostname"
-                    className="flex-1"
-                  />
+              {controlMode === 'wled' && (
+                <div>
+                  <label className="text-sm font-medium">wLED IP/Hostname</label>
+                  <div className="flex mt-1">
+                    <Input
+                      value={wledAddress}
+                      onChange={e => {
+                        const newAddress = e.target.value;
+                        setWledAddress(newAddress);
+                      }}
+                      placeholder="Enter wLED IP or hostname"
+                      className="flex-1"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -1049,14 +1154,16 @@ const updateUrlWithSettings = () => {
               <Upload size={16} />
               {uploadingFile ? 'Uploading...' : 'Upload Playlist'}
             </Button>
-            <Button 
-              onClick={openWifiConfig}
-              disabled={!connected}
-              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
-            >
-              <Wifi size={16} />
-              Network Config
-            </Button>
+            {isFirmwareVersionSupported() && (
+              <Button 
+                onClick={openWifiConfig}
+                disabled={!connected}
+                className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+              >
+                <Wifi size={16} />
+                Network Config
+              </Button>
+            )}
           </div>
         </div>
       </div>
