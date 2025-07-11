@@ -50,11 +50,19 @@ export default function SandBotDashboard() {
   const [connected, setConnected] = useState(false);
   const [statusData, setStatusData] = useState(null);
   const [settingsData, setSettingsData] = useState(null);
+  const [isPolling, setIsPolling] = useState(false);
+  
+  // Robot configuration for time calculations
+  const [robotConfig, setRobotConfig] = useState({
+    axis0: { maxSpeed: 10, maxVal: 100 }, // Default: 200mm diameter (100mm radius)
+    axis1: { maxSpeed: 10, maxVal: 100 }
+  });
   
   // UI state
   const [activeTab, setActiveTab] = useState('configuration');
   const [advancedVisible, setAdvancedVisible] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
+  const [robotSettingsVisible, setRobotSettingsVisible] = useState(false);
   const [showSetHomeTooltip, setShowSetHomeTooltip] = useState(false);
   
   // File management
@@ -88,6 +96,7 @@ export default function SandBotDashboard() {
   // Refs for canvas and polling
   const canvasRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const initialFetchDone = useRef(false);
 
   // =====================================
   // UTILITY FUNCTIONS
@@ -124,8 +133,7 @@ useEffect(() => {
     pollStatus();
     pollIntervalRef.current = setInterval(pollStatus, pollCycle * 1000);
     
-    // Also fetch file list initially
-    fetchFileList();
+    // File list will be fetched automatically when connection is established
   }
   
   return () => {
@@ -141,6 +149,11 @@ useEffect(() => {
     setActiveTab('configuration');
   }
 }, [controlMode, activeTab]);
+
+// Reset initial fetch flag when robot name changes
+useEffect(() => {
+  initialFetchDone.current = false;
+}, [robotName]);
 
   // Update simulator drawing when needed
   useEffect(() => {
@@ -212,7 +225,10 @@ const updateUrlWithSettings = () => {
    * Fetches current robot status including position, queue, and pause state
    */
   const pollStatus = async () => {
-    if (!robotName) return;
+    if (!robotName || isPolling) return;
+    
+    setIsPolling(true);
+    const wasConnected = connected;
     
     try {
       const response = await fetch(`http://${robotName}/status`);
@@ -224,9 +240,18 @@ const updateUrlWithSettings = () => {
       setStatusData(data);
       setPreviousQueueStatus(data.Qd || 0);
       setConnected(true);
+      
+      // Fetch initial data only on first successful connection
+      if (!wasConnected && !initialFetchDone.current) {
+        initialFetchDone.current = true;
+        fetchSettings();
+        fetchFileList();
+      }
     } catch (error) {
       console.error('Error fetching status:', error);
       setConnected(false);
+    } finally {
+      setIsPolling(false);
     }
   };
   
@@ -238,6 +263,24 @@ const updateUrlWithSettings = () => {
       const response = await fetch(`http://${robotName}/getsettings`);
       const data = await response.json();
       setSettingsData(data);
+      
+      // Extract robot configuration for time calculations
+      if (data && data.robotConfig && data.robotConfig.robotType === 'SandTableScara') {
+        const axis0 = data.robotConfig.robotGeom?.axis0;
+        const axis1 = data.robotConfig.robotGeom?.axis1;
+        
+        const newConfig = {
+          axis0: {
+            maxSpeed: axis0?.maxSpeed || 10,
+            maxVal: axis0?.maxVal || 100
+          },
+          axis1: {
+            maxSpeed: axis1?.maxSpeed || 10,
+            maxVal: axis1?.maxVal || 100
+          }
+        };
+        setRobotConfig(newConfig);
+      }
     } catch (error) {
       console.error('Error fetching settings:', error);
     }
@@ -574,6 +617,58 @@ const updateUrlWithSettings = () => {
     }
   };
 
+  // Calculate estimated drawing time for pattern
+  const calculateDrawingTime = () => {
+    if (!coordinates || coordinates.length < 2) return 0;
+    
+    // Use robot config when connected, fallback to defaults when offline
+    const maxRadius = Math.max(robotConfig.axis0.maxVal, robotConfig.axis1.maxVal);
+    const avgSpeed = (robotConfig.axis0.maxSpeed + robotConfig.axis1.maxSpeed) / 2;
+    
+    let totalDistance = 0;
+    
+    // Calculate distance between consecutive points
+    for (let i = 1; i < coordinates.length; i++) {
+      const prev = coordinates[i - 1];
+      const curr = coordinates[i];
+      
+      // Convert polar to cartesian coordinates (normalized 0-1 to actual mm)
+      const prevX = prev.rho * maxRadius * Math.cos(prev.theta);
+      const prevY = prev.rho * maxRadius * Math.sin(prev.theta);
+      const currX = curr.rho * maxRadius * Math.cos(curr.theta);
+      const currY = curr.rho * maxRadius * Math.sin(curr.theta);
+      
+      // Calculate Euclidean distance between points
+      const deltaX = currX - prevX;
+      const deltaY = currY - prevY;
+      const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      
+      totalDistance += distance;
+    }
+    
+    // Calculate time in seconds (distance / speed)
+    const timeSeconds = totalDistance / avgSpeed;
+    
+    return timeSeconds;
+  };
+
+  // Format time duration for display
+  const formatDrawingTime = (seconds) => {
+    if (!seconds || seconds < 0) return 'N/A';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
+    }
+  };
+
   // File upload function for .seq and .thr files
   const handleFileUpload = () => {
     const input = document.createElement('input');
@@ -811,6 +906,11 @@ const updateUrlWithSettings = () => {
                           <h3 className="text-lg font-medium text-[#5c4033]">Active File</h3>
                           <div className="mt-2">
                             <p>{loadedFileName || 'No file loaded'}</p>
+                            {loadedFileName && coordinates.length > 0 && (
+                              <p className="text-sm text-gray-600 mt-1">
+                                Drawing estimate: {formatDrawingTime(calculateDrawingTime())}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -823,7 +923,7 @@ const updateUrlWithSettings = () => {
                               e.stopPropagation();
                               handleSaveGalleryToPlaylist();
                             }}
-                            disabled={fileHistory.length === 0 || !connected}
+                            disabled={fileHistory.length < 2 || !connected}
                             className="mr-2 bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1 h-6"
                           >
                             Save gallery to playlist
@@ -915,7 +1015,21 @@ const updateUrlWithSettings = () => {
                   </div>
 
                   {loadedFileName && (
-                    <p className="mt-2 text-sm text-gray-600">Loaded: {loadedFileName}</p>
+                    <div className="mt-2 text-sm text-gray-600 flex justify-between items-center">
+                      <span className="text-left truncate flex-1">
+                        Loaded: {loadedFileName}
+                      </span>
+                      <span className="text-center flex-1">
+                        Drawing estimate: {formatDrawingTime(calculateDrawingTime())}
+                      </span>
+                      <span className="text-right text-xs flex-1">
+                        Speed @ {Math.round((robotConfig.axis0.maxSpeed + robotConfig.axis1.maxSpeed) / 2)}mm/s • ⌀{Math.max(robotConfig.axis0.maxVal, robotConfig.axis1.maxVal) * 2}mm
+                        {connected ? 
+                          <span className="text-green-600 ml-1">✓</span> : 
+                          <span className="text-orange-600 ml-1">○</span>
+                        }
+                      </span>
+                    </div>
                   )}
                     
                   <div className="flex justify-center">
@@ -1059,10 +1173,15 @@ const updateUrlWithSettings = () => {
             </Button>
             
             {settingsData && (
-              <div className="mt-4 bg-[#f5efe9] p-4 rounded-md shadow-sm overflow-auto max-h-96">
-                <h3 className="text-lg font-medium text-[#5c4033] mb-2">Robot Settings</h3>
-                <pre className="text-sm whitespace-pre-wrap">{JSON.stringify(settingsData, null, 2)}</pre>
-              </div>
+              <Collapsible open={robotSettingsVisible} onOpenChange={setRobotSettingsVisible} className="mt-4">
+                <CollapsibleTrigger className="flex items-center w-full bg-[#e6d8cc] p-2 rounded-md">
+                  <span className="flex-1 text-left font-medium">Robot Configuration</span>
+                  <ChevronDown className={`transform transition-transform ${robotSettingsVisible ? 'rotate-180' : ''}`} />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 bg-[#f5efe9] p-4 rounded-md shadow-sm overflow-auto max-h-96">
+                  <pre className="text-sm whitespace-pre-wrap">{JSON.stringify(settingsData, null, 2)}</pre>
+                </CollapsibleContent>
+              </Collapsible>
             )}
           </div>
           
