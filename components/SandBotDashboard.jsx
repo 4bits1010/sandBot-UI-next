@@ -54,8 +54,8 @@ export default function SandBotDashboard() {
   
   // Robot configuration for time calculations
   const [robotConfig, setRobotConfig] = useState({
-    axis0: { maxSpeed: 10, maxVal: 100 }, // Default: 200mm diameter (100mm radius)
-    axis1: { maxSpeed: 10, maxVal: 100 }
+    axis0: { maxSpeed: 18, maxVal: 150 }, // Default: 600mm diameter (300mm radius = 150+150)
+    axis1: { maxSpeed: 18, maxVal: 150 }
   });
   
   // UI state
@@ -622,7 +622,7 @@ const updateUrlWithSettings = () => {
     if (!coordinates || coordinates.length < 2) return 0;
     
     // Use robot config when connected, fallback to defaults when offline
-    const maxRadius = Math.max(robotConfig.axis0.maxVal, robotConfig.axis1.maxVal);
+    const maxRadius = robotConfig.axis0.maxVal + robotConfig.axis1.maxVal;
     const avgSpeed = (robotConfig.axis0.maxSpeed + robotConfig.axis1.maxSpeed) / 2;
     
     let totalDistance = 0;
@@ -905,11 +905,17 @@ const updateUrlWithSettings = () => {
                         <div className="bg-[#f5efe9] p-4 rounded-md shadow-sm">
                           <h3 className="text-lg font-medium text-[#5c4033]">Active File</h3>
                           <div className="mt-2">
-                            <p>{loadedFileName || 'No file loaded'}</p>
-                            {loadedFileName && coordinates.length > 0 && (
-                              <p className="text-sm text-gray-600 mt-1">
-                                Drawing estimate: {formatDrawingTime(calculateDrawingTime())}
-                              </p>
+                            {(loadedFileName && statusData && statusData.Qd > 0) ? (
+                              <>
+                                <p>{loadedFileName}</p>
+                                {coordinates.length > 0 && (
+                                  <p className="text-sm text-gray-600 mt-1">
+                                    Drawing estimate: {formatDrawingTime(calculateDrawingTime())}
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <p>No file loaded</p>
                             )}
                           </div>
                         </div>
@@ -1023,7 +1029,7 @@ const updateUrlWithSettings = () => {
                         Drawing estimate: {formatDrawingTime(calculateDrawingTime())}
                       </span>
                       <span className="text-right text-xs flex-1">
-                        Speed @ {Math.round((robotConfig.axis0.maxSpeed + robotConfig.axis1.maxSpeed) / 2)}mm/s • ⌀{Math.max(robotConfig.axis0.maxVal, robotConfig.axis1.maxVal) * 2}mm
+                        Speed @ {Math.round((robotConfig.axis0.maxSpeed + robotConfig.axis1.maxSpeed) / 2)}mm/s • ⌀{(robotConfig.axis0.maxVal + robotConfig.axis1.maxVal) * 2}mm
                         {connected ? 
                           <span className="text-green-600 ml-1">✓</span> : 
                           <span className="text-orange-600 ml-1">○</span>
