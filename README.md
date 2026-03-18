@@ -4,39 +4,39 @@ A modern, responsive web interface for controlling and monitoring SandBot robots
 
 ![SandBot Dashboard](https://img.shields.io/badge/SandBot-Dashboard-blue) ![Next.js](https://img.shields.io/badge/Next.js-15.3.1-black) ![React](https://img.shields.io/badge/React-19.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-## 🚀 Features
+## Features
 
-### 📊 **Status Monitoring**
+### **Status Monitoring**
 - **Real-time Status Display**: Live robot status in the main header (idle, doodling, paused, offline)
 - **Position Tracking**: Current X/Y coordinates with precision display
 - **Connection Management**: Visual connection indicators and auto-reconnection
 - **Advanced Diagnostics**: WiFi IP, SSID, MAC address, firmware version, and system time
 
-### 🎨 **Pattern Simulation & Control**
+### **Pattern Simulation & Control**
 - **Interactive Canvas**: 500x500px pattern visualization with polar coordinate rendering
 - **Progress Control**: Intuitive slider for viewing pattern completion percentage
 - **File Loading**: Support for .thr pattern files with real-time preview
 - **Play Controls**: Play, pause, and stop functionality with visual feedback
 
-### 📁 **File Management**
+### **File Management**
 - **Multi-format Support**: Handle both .thr (pattern) and .seq (playlist) files
 - **Upload & Download**: Drag-and-drop file upload with progress indication
 - **File Browser**: Searchable file list with size information
 - **Delete Operations**: Safe file deletion with confirmation dialogs
 - **Gallery History**: Track recently played files with timestamps
 
-### ⚙️ **Configuration & Settings**
+### **Configuration & Settings**
 - **Robot Settings**: set robot hostName/IP, polling intervals, and homing
 - **Network Configuration**: WiFi setup with client mode and access point options
 - **LED Controls**: Optional wLED integration for advanced lighting effects
 - **URL Parameters**: Support for configuration via query parameters
 
-### 🌐 **Network Management**
+### **Network Management**
 - **WiFi Configuration**: Easy setup for both client and access point modes
 - **Network File Management**: Direct access to .network configuration files
 - **IP Address Display**: Real-time network status and connectivity information
 
-## 🏗️ **Technical Architecture**
+## **Technical Architecture**
 
 ### **Built With**
 - **Framework**: Next.js 15.3.1 with React 19.0.0
@@ -45,7 +45,7 @@ A modern, responsive web interface for controlling and monitoring SandBot robots
 - **Styling**: Tailwind CSS with custom color scheme
 - **State Management**: React hooks with organized state structure
 
-## 📱 **User Interface**
+## **User Interface**
 
 ### **Main Navigation Tabs**
 1. **Status Tab**: Real-time monitoring and diagnostics
@@ -60,7 +60,7 @@ A modern, responsive web interface for controlling and monitoring SandBot robots
 - **Settings Panels**: Collapsible configuration sections
 - **History Gallery**: Recently played files with metadata
 
-## 🔧 **Robot Communication**
+## **Robot Communication**
 
 ### **API Endpoints**
 The dashboard communicates with SandBot robots via HTTP REST API:
@@ -78,7 +78,7 @@ The dashboard communicates with SandBot robots via HTTP REST API:
 - Automatic reconnection on network issues
 - Live status updates without page refresh
 
-## 📋 **Installation & Setup**
+## **Installation & Setup**
 
 For detailed installation instructions, see [INSTALL.md](./INSTALL.md)
 
@@ -110,7 +110,7 @@ npx serve out/
 python -m http.server 3000 -d out/
 ```
 
-## 🔗 **URL Parameters**
+## **URL Parameters**
 
 Configure the dashboard via URL parameters:
 
@@ -125,7 +125,7 @@ Configure the dashboard via URL parameters:
 - `wledAddress`: LED controller IP address
 
 
-## 📄 **License**
+## **License**
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
